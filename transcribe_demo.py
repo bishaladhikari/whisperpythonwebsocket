@@ -1,9 +1,11 @@
 #! python3.7
 
 import argparse
+import asyncio
 import io
 import os
 import speech_recognition as sr
+import websockets
 import whisper
 import torch
 
@@ -13,10 +15,10 @@ from tempfile import NamedTemporaryFile
 from time import sleep
 from sys import platform
 
-
-def main():
+TRANSCRIBED_TEXT = 'Hello Client, this is the server.'
+async def run_audio_transcription():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="medium", help="Model to use",
+    parser.add_argument("--model", default="tiny", help="Model to use",
                         choices=["tiny", "base", "small", "medium", "large"])
     parser.add_argument("--non_english", action='store_true',
                         help="Don't use the english model.")
@@ -26,13 +28,13 @@ def main():
                         help="How real time the recording is in seconds.", type=float)
     parser.add_argument("--phrase_timeout", default=3,
                         help="How much empty space between recordings before we "
-                             "consider it a new line in the transcription.", type=float)  
+                             "consider it a new line in the transcription.", type=float)
     if 'linux' in platform:
         parser.add_argument("--default_microphone", default='pulse',
                             help="Default microphone name for SpeechRecognition. "
                                  "Run this with 'list' to view available Microphones.", type=str)
     args = parser.parse_args()
-    
+
     # The last time a recording was retreived from the queue.
     phrase_time = None
     # Current raw audio bytes.
@@ -44,7 +46,7 @@ def main():
     recorder.energy_threshold = args.energy_threshold
     # Definitely do this, dynamic energy compensation lowers the energy threshold dramtically to a point where the SpeechRecognizer never stops recording.
     recorder.dynamic_energy_threshold = False
-    
+
     # Important for linux users. 
     # Prevents permanent application hang and crash by using the wrong Microphone
     if 'linux' in platform:
@@ -52,7 +54,7 @@ def main():
         if not mic_name or mic_name == 'list':
             print("Available microphone devices are: ")
             for index, name in enumerate(sr.Microphone.list_microphone_names()):
-                print(f"Microphone with name \"{name}\" found")   
+                print(f"Microphone with name \"{name}\" found")
             return
         else:
             for index, name in enumerate(sr.Microphone.list_microphone_names()):
@@ -61,7 +63,7 @@ def main():
                     break
     else:
         source = sr.Microphone(sample_rate=16000)
-        
+
     # Load / Download model
     model = args.model
     if args.model != "large" and not args.non_english:
@@ -73,11 +75,11 @@ def main():
 
     temp_file = NamedTemporaryFile().name
     transcription = ['']
-    
+
     with source:
         recorder.adjust_for_ambient_noise(source)
 
-    def record_callback(_, audio:sr.AudioData) -> None:
+    def record_callback(_, audio: sr.AudioData) -> None:
         """
         Threaded callback function to recieve audio data when recordings finish.
         audio: An AudioData containing the recorded bytes.
@@ -95,6 +97,7 @@ def main():
 
     while True:
         try:
+            # print("Audio transcription running...")
             now = datetime.utcnow()
             # Pull raw recorded audio from the queue.
             if not data_queue.empty():
@@ -132,14 +135,17 @@ def main():
                     transcription[-1] = text
 
                 # Clear the console to reprint the updated transcription.
-                os.system('cls' if os.name=='nt' else 'clear')
+                os.system('cls' if os.name == 'nt' else 'clear')
                 for line in transcription:
+                    await run_audio_transcription_queue.put(line)
+                    print('Audio transcription data added to queue')
                     print(line)
                 # Flush stdout.
                 print('', end='', flush=True)
 
                 # Infinite loops are bad for processors, must sleep.
                 sleep(0.25)
+                await asyncio.sleep(1)
         except KeyboardInterrupt:
             break
 
@@ -148,5 +154,57 @@ def main():
         print(line)
 
 
+# async def websocket_handler(websocket, path):
+#     print("Websocket connected")
+#     while True:
+#         message = await websocket.recv()
+#         print(f"Received message: {message}")
+#         response = f"Server received: {message}"
+#         await websocket.send(response)
+#     pass
+
+
+# start_server = websockets.serve(websocket_handler, "localhost", 8766)
+#
+# asyncio.get_event_loop().run_until_complete(start_server)
+# asyncio.get_event_loop().run_forever()
+
+
+async def websocket_handler(websocket, path):
+    # handle incoming websocket connections
+    await websocket.send("Hello, client!")
+    try:
+        while True:
+            try:
+                # receive data from the audio transcription coroutine and send it to all connected clients
+                data = await asyncio.wait_for(run_audio_transcription_queue.get(), timeout=1)
+                print(f"Received data from audio transcription coroutine: {data}")
+                # send data to all connected clients
+                await asyncio.wait([websocket.send(data)])
+            except asyncio.TimeoutError:
+                # continue the loop if no data is received within the timeout period
+                continue
+    except websockets.exceptions.ConnectionClosed:
+        pass
+
+async def run_websockets_server():
+    async with websockets.serve(websocket_handler, 'localhost', 8766):
+        print("WebSocket server running at ws://localhost:8766")
+        await asyncio.Future()  # wait forever
+
+
+async def main():
+    global run_audio_transcription_queue
+    run_audio_transcription_queue = asyncio.Queue()
+    # create tasks for the websockets server and the audio transcription
+    tasks = [
+        asyncio.create_task(run_websockets_server()),
+        asyncio.create_task(run_audio_transcription())
+    ]
+
+    # wait for all tasks to complete (this will never happen since the tasks run indefinitely)
+    await asyncio.gather(*tasks)
+
+
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
