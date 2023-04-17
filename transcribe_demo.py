@@ -18,7 +18,7 @@ from sys import platform
 TRANSCRIBED_TEXT = 'Hello Client, this is the server.'
 async def run_audio_transcription():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="tiny", help="Model to use",
+    parser.add_argument("--model", default="small", help="Model to use",
                         choices=["tiny", "base", "small", "medium", "large"])
     parser.add_argument("--non_english", action='store_true',
                         help="Don't use the english model.")
@@ -136,6 +136,7 @@ async def run_audio_transcription():
 
                 # Clear the console to reprint the updated transcription.
                 os.system('cls' if os.name == 'nt' else 'clear')
+                # await run_audio_transcription_queue.put(transcription)
                 for line in transcription:
                     await run_audio_transcription_queue.put(line)
                     print('Audio transcription data added to queue')
