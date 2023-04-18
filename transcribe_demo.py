@@ -15,7 +15,9 @@ from tempfile import NamedTemporaryFile
 from time import sleep
 from sys import platform
 
-TRANSCRIBED_TEXT = 'Hello Client, this is the server.'
+CHAT_WAKE_UP_PHRASE = ["mike", "mic", "mikie", "michael", "mikee", "miky", "mik", "miky", "mikey"]
+# Todo accepts any phrase that starts with "Hey Mike" or "hey mark" or "hey micheal" "hey, mike," "hemai" "hemi" and so on
+TERMINAL_WAKE_UP_PHRASE = "Hey Terminal"
 async def run_audio_transcription():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="small", help="Model to use",
@@ -138,9 +140,15 @@ async def run_audio_transcription():
                 os.system('cls' if os.name == 'nt' else 'clear')
                 # await run_audio_transcription_queue.put(transcription)
                 for line in transcription:
+                    print(line)
                     await run_audio_transcription_queue.put(line)
                     print('Audio transcription data added to queue')
-                    print(line)
+                    # words = line.lower().split()
+                    # if words and ((any(word in CHAT_WAKE_UP_PHRASE for word in words) or words[-1].rstrip(
+                    #         '?!.') in CHAT_WAKE_UP_PHRASE)):
+                    #     print('wakeup phrase found')
+                    #     await run_audio_transcription_queue.put(line)
+                    #     print('Audio transcription data added to queue')
                 # Flush stdout.
                 print('', end='', flush=True)
 
